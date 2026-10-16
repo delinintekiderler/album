@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Albüm</title>
+<style>
+:root{--desk:#2b3a42;--paper:#f7f6f2;--ink:#1d2327;--soft:#6b7780}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--desk);font-family:Georgia,"Times New Roman",serif;color:var(--ink);overflow:hidden;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#book{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top) 14px env(safe-area-inset-bottom);perspective:1600px}
+#page{width:min(100%,520px);height:min(88vh,860px);background:var(--paper);border-radius:4px 10px 10px 4px;
+  box-shadow:0 18px 40px rgba(0,0,0,.45),inset 10px 0 14px -10px rgba(0,0,0,.25);
+  padding:22px 20px 18px;display:flex;flex-direction:column;gap:14px;transform-origin:left center;position:relative;overflow:hidden}
+#page.out-next{animation:outn .28s ease-in forwards}
+#page.out-prev{animation:outp .28s ease-in forwards}
+#page.in{animation:inn .28s ease-out}
+@keyframes outn{to{transform:rotateY(-28deg);opacity:0}}
+@keyframes outp{to{transform:rotateY(28deg);opacity:0}}
+@keyframes inn{from{opacity:0}to{opacity:1}}
+h1{font-size:1.35rem;margin:0;font-weight:600;letter-spacing:.01em}
+.photos{flex:1;min-height:0;display:grid;gap:10px}
+.photos.n1{grid-template-rows:1fr}
+.photos.n2{grid-template-rows:1fr 1fr}
+.photos.n3,.photos.n4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.photos.n3 .ph:first-child{grid-column:1/3}
+.ph{position:relative;background:#e4e2db center/cover no-repeat;border-radius:2px;overflow:hidden}
+.ph::after{content:"";position:absolute;inset:0}  /* şeffaf koruma katmanı */
+p{margin:0;line-height:1.55;font-size:1rem;color:#33393d}
+.num{text-align:center;font-size:.8rem;color:var(--soft)}
+.hint{position:fixed;bottom:calc(8px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#9fb0b8;font:12px system-ui,sans-serif}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:30px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div id="book"><div id="page"><div id="msg">Albüm yükleniyor…</div></div></div>
+<div class="hint">Sağa dokun: sonraki · Sola dokun: önceki</div>
+
+<script>
+// >>> BURAYI KENDİ ALAN ADINLA DEĞİŞTİR <<<
+const BASE = "https://foto.alanadin.com";   // Cloudflare Tunnel ile açtığın sunucu adresi
+const TOKEN = "";                            // istersen basit bir anahtar (aşağıda anlattım)
+
+let pages = [], cur = 0, busy = false;
+const pageEl = document.getElementById("page");
+const cache = new Map();
+
+async function load(url){
+  if(cache.has(url)) return cache.get(url);
+  const r = await fetch(url, {headers: TOKEN ? {"X-Album-Key": TOKEN} : {}});
+  if(!r.ok) throw new Error(r.status);
+  return r;
+}
+async function photoURL(name){
+  if(cache.has(name)) return cache.get(name);
+  const blob = await (await load(BASE + "/photos/" + encodeURIComponent(name))).blob();
+  const u = URL.createObjectURL(blob);
+  cache.set(name, u);
+  return u;
+}
+async function render(){
+  const p = pages[cur];
+  const n = Math.min(p.photos?.length || 0, 4);
+  pageEl.innerHTML = "";
+  if(p.title){ const h = document.createElement("h1"); h.textContent = p.title; pageEl.append(h); }
+  if(n){
+    const g = document.createElement("div"); g.className = "photos n" + n;
+    for(const name of p.photos.slice(0,4)){
+      const d = document.createElement("div"); d.className = "ph"; g.append(d);
+      photoURL(name).then(u => d.style.backgroundImage = `url(${u})`).catch(()=>{});
+    }
+    pageEl.append(g);
+  }
+  if(p.text){ const t = document.createElement("p"); t.textContent = p.text; pageEl.append(t); }
+  const num = document.createElement("div"); num.className = "num"; num.textContent = (cur+1) + " / " + pages.length;
+  pageEl.append(num);
+  // sonraki sayfanın fotoğraflarını önceden yükle
+  (pages[cur+1]?.photos || []).forEach(n => photoURL(n).catch(()=>{}));
+}
+async function go(dir){
+  const next = cur + dir;
+  if(busy || next < 0 || next >= pages.length) return;
+  busy = true;
+  pageEl.className = dir > 0 ? "out-next" : "out-prev";
+  await new Promise(r => setTimeout(r, 280));
+  cur = next; await render();
+  pageEl.className = "in";
+  setTimeout(()=>{ pageEl.className = ""; busy = false; }, 280);
+}
+
+// dokunma: ekranın sağ yarısı ileri, sol yarısı geri
+document.addEventListener("click", e => go(e.clientX > innerWidth/2 ? 1 : -1));
+let sx = null;
+document.addEventListener("touchstart", e => sx = e.touches[0].clientX, {passive:true});
+document.addEventListener("touchend", e => {
+  if(sx === null) return;
+  const dx = e.changedTouches[0].clientX - sx; sx = null;
+  if(Math.abs(dx) > 50){ e.preventDefault(); go(dx < 0 ? 1 : -1); }
+});
+document.addEventListener("keydown", e => { if(e.key==="ArrowRight") go(1); if(e.key==="ArrowLeft") go(-1); });
+
+// indirmeyi zorlaştıran önlemler
+["contextmenu","dragstart","selectstart","copy"].forEach(ev => document.addEventListener(ev, e => e.preventDefault()));
+
+(async () => {
+  try{
+    pages = await (await load(BASE + "/album.json")).json();
+    await render();
+  }catch(e){
+    pageEl.innerHTML = '<div id="msg">Albüme ulaşılamadı. Sunucu açık mı?</div>';
+  }
+})();
+</script>
+</body>
+</html>
